@@ -1,0 +1,84 @@
+* Introduction
+
+  This is command line utility to download audio and video files from youtube.
+
+  For video, it will download =bestvideo+bestaudio= and merge it into =mkv= container.
+  Then, normalize the audio part to a certain loudness level using EBU R128 loudness
+  normalization procedue, with target level -14.0.
+
+  For audio, it will download =bestaudio= and transcode it to =mp3=. Then update MP3 ID3 tag,
+  followed by audio loudness normalization with EBU R128 target level -14.0.
+
+* Requirements
+
+  - Python version >= 3.6
+  - =ffmpeg= version >= 3.1
+    - Debian and it's derivatives: =$ sudo apt install ffmpeg=
+    - Macos: /not yet try/
+    - Windows: /never try, probably never will/. Best is to use Windows Subsystem for Linux.
+
+* Installation
+  WIP. Standalone executable will be provided later. At the moment, only python files for
+  developer.
+
+* Usage
+** Input
+   This utility need an input file containing youtube link etc in CSV format.
+   Anything after '=#=' character in the line will be regarded as comment and
+   discarded.
+
+   Example =download_list.csv=:
+#+BEGIN_EXAMPLE
+  #     <youtube link>                  <album artist>    <album name>     <song>       <artist>   <genre> <year> <picture file>
+#
+https://www.youtube.com/watch?v=3qe2l2-c6-4, Queen Singer, Immortal Songs, Every Night, Queen Singer,  Pop, 2019, queen_09.jpg  # 20191026
+https://www.youtube.com/watch?v=EF129mg1r_c, Queen Singer, Immortal Songs, Nocturne,    Queen Singer,  Pop, 2019, queen_05.jpg
+#+END_EXAMPLE
+
+   CSV column explanation:
+   - youtube link :: it must be direct link (not playlist, etc)
+   - album artist :: /self explanatory/
+   - album name :: /self explanatory/
+   - song (or track title) :: /self explanatory/
+   - artist :: /self explanatory/
+   - genre :: /self explanatory/
+   - year :: /self explanatory/
+   - picture file :: jpg file to be embeded into MP3 output, recommended 300x300 pixels.
+      Put the picture files in a folder =cover/= at the same level of this download utility.
+
+** Operation
+   : $ dl-youtube.py -v -c ~/path/to/cover/folder -i download_list.csv -o ~/path/to/output/folder
+
+   For more options:
+   : $ dl-youtube.py -h
+
+** Output
+   Audio and video files will be generated at output folder specified in the
+   command line with this structure: =album_artist/album_name/track_title/=
+
+* For Developer
+** Setup =pipenv=
+   - Install
+     : $ sudo apt install python3-dev
+     : $ sudo pip3 install wheel
+     : $ sudo pip3 install virtualenv
+     : $ pip3 install --user pipenv
+   - =.bashrc=
+     : # pipenv will now place the virtualenv inside the project folder
+     : # emacs will see it and activate it
+     : export PIPENV_VENV_IN_PROJECT=1
+     : ...
+     : # debian pipenv install here
+     : PATH=~/.local/bin:${PATH}
+** Clone repo
+   : $ git clone https://github.com/stotok/dl-youtube.git
+** Spawn a shell in a virtual environment
+   : $ cd dl-youtube
+   - first time (create virtual env)
+     : $ pipenv shell --python 3.6
+   - next time (after virtual env already created)
+     : $ pipenv shell
+** Install Dependencies
+   : (dl-youtube) $ pipenv install
+** Run
+   : (dl-youtube) $ python dl-youtube.py -v -c ~/path/to/cover/folder -i download_list.csv -o ~/path/to/output/folder

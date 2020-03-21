@@ -1,0 +1,6 @@
+  #     <youtube link>                      <album artist>        <album name>          <song>         <artist>            <genre> <year>  <picture file>
+#
+# Invalid youtube link
+https://www.youtube.com/watch?v=ONVWqm,      Album Artist,        Album Name,            Title Name,   Artist Name,         K-Pop, 2019, heo_solji_05.jpg  # 20191026
+# No album art file
+https://www.youtube.com/watch?v=BaW_jenozKc, Philipp Hagemeister, Youtube-DL Test Video, Test Video,   Phillip Hagemesiter, Pop,   2019, nofile.jpg
