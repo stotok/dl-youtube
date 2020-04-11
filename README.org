@@ -16,6 +16,10 @@
     - Debian and it's derivatives: =$ sudo apt install ffmpeg=
     - Macos: /not yet try/
     - Windows: /never try, probably never will/. Best is to use Windows Subsystem for Linux.
+  - =youtube-dl=, link: https://github.com/ytdl-org/youtube-dl
+  - =ffmpeg-normalize=, link: https://github.com/slhck/ffmpeg-normalize
+  - =mutagen=, link: https://github.com/quodlibet/mutagen
+
 
 * Installation
   WIP. Standalone executable will be provided later. At the moment, only python files for
@@ -74,8 +78,8 @@ https://www.youtube.com/watch?v=EF129mg1r_c, Queen Singer, Immortal Songs, Noctu
    : $ git clone https://github.com/stotok/dl-youtube.git
 ** Spawn a shell in a virtual environment
    : $ cd dl-youtube
-   - first time (create virtual env)
-     : $ pipenv shell --python 3.6
+   - first time (create virtual env, at least python 3.6)
+     : $ pipenv shell --python 3.7
    - next time (after virtual env already created)
      : $ pipenv shell
 ** Install Dependencies
