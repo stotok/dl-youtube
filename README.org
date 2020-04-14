@@ -4,10 +4,13 @@
 
   For video, it will download =bestvideo+bestaudio= and merge it into =mkv= container.
   Then, normalize the audio part to a certain loudness level using EBU R128 loudness
-  normalization procedue, with target level -14.0.
+  normalization procedue, with target level -14 LUFS.
 
   For audio, it will download =bestaudio= and transcode it to =mp3=. Then update MP3 ID3 tag,
-  followed by audio loudness normalization with EBU R128 target level -14.0.
+  followed by audio loudness normalization with EBU R128 target level -14 LUFS.
+
+  For more info: [[https://www.miloburke.com/production-blog/blog/how-to-give-your-song-the-perfect-loudness-update][How To Give Your Song The Perfect Loudness]].
+  To check: [[https://www.loudnesspenalty.com][Loudness Penalty: Analyzer]].
 
 * Requirements
 
@@ -19,7 +22,6 @@
   - =youtube-dl=, link: https://github.com/ytdl-org/youtube-dl
   - =ffmpeg-normalize=, link: https://github.com/slhck/ffmpeg-normalize
   - =mutagen=, link: https://github.com/quodlibet/mutagen
-
 
 * Installation
   WIP. Standalone executable will be provided later. At the moment, only python files for

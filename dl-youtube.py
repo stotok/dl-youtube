@@ -12,7 +12,8 @@ import sys
 import traceback
 
 # TODO
-# - Readme for 'user' and 'developer'
+# - Support download not from youtube (done)
+# - Readme for 'user' and 'developer' (done)
 # - input csv with 'av', 'v', 'a'
 # - generate standalone executable with nuitka
 #   $ python -m nuitka --standalone --show-progress --show-scons dl-youtube.py
@@ -22,7 +23,7 @@ class DLException(Exception): pass
 class DLReqError(DLException): pass
 class DLCommandError(DLException): pass
 class DLFolderError(DLException): pass
-class DLFolderExist(DLException): pass
+class DLFolderNotFound(DLException): pass
 class DLInvalidOption(DLException): pass
 class DLYoutubeDLError(DLException): pass
 
@@ -72,9 +73,15 @@ if shutil.which('ffmpeg') is None and shutil.which('avconv') is None:
 
 DEBUG = False
 
-__version_info__ = (0, 8, 0)
+__version_info__ = (0, 8, 1)
 __version__ = '.'.join(str(c) for c in __version_info__)
 __progname_version__ = __file__ + ' ' + __version__
+
+# version history
+# v0.8.1
+# - support download other than youtube (video only)
+# v0.8.0
+# - initial release
 
 class DLYoutube(object):
     '''
@@ -115,6 +122,9 @@ class DLYoutube(object):
             self.outputFolder = os.path.abspath(folderoutput)
         else:
             self.outputFolder = self.OUTPUT_FOLDER
+        #
+        if not os.path.isdir(self.outputFolder):
+            raise DLFolderNotFound('Output Folder Not Exist: {}'.format(self.outputFolder))
         #
         inputlist    = kwargs.get('inputlist')
         try:
@@ -203,6 +213,10 @@ class DLYoutube(object):
         else:
             return logging.NOTSET
     #
+    def isYoutubeLink(self, link):
+        return True if 'youtube' in link else False
+
+    #
     def ydl_hook(self, d):
         if d['status'] == 'finished':
             msg = 'Downloaded {}'.format(d['filename'])
@@ -224,15 +238,15 @@ class DLYoutube(object):
         }
         #
         for od in self.inputList:
-            dlink         = od[self.DLINK].strip().strip('"') # artist name
+            dlink         = od[self.DLINK].strip().strip('"')       # download link
             albumartist   = od[self.ALBUMARTIST].strip().strip('"') # album artist
-            album         = od[self.ALBUM].strip().strip('"') # album name
-            song          = od[self.TITLE].strip().strip('"') # song name
-            artist        = od[self.ARTIST].strip().strip('"') # artist
-            genre         = od[self.GENRE].strip().strip('"') # genre
-            # date          = od[self.DATE].strip().strip('"') # year
-            year          = od[self.YEAR].strip().strip('"') # year
-            cover         = od[self.PICTURE].strip().strip('"') # cover picture
+            album         = od[self.ALBUM].strip().strip('"')       # album name
+            song          = od[self.TITLE].strip().strip('"')       # song name
+            artist        = od[self.ARTIST].strip().strip('"')      # artist
+            genre         = od[self.GENRE].strip().strip('"')       # genre
+            # date          = od[self.DATE].strip().strip('"')      # year
+            year          = od[self.YEAR].strip().strip('"')        # year
+            cover         = od[self.PICTURE].strip().strip('"')     # cover picture
 
             # non-alphanumeric change to underscore
             albumartist_fname = re.sub('[^0-9a-zA-Z]+', '_', albumartist)
@@ -256,26 +270,31 @@ class DLYoutube(object):
                 if not os.path.isdir(album_fpath):
                     continue
             #
+            isyoutube = self.isYoutubeLink(dlink)
+            #
             try:
                 # VIDEO (MKV)
                 self.logger.info('')
                 self.logger.info('INFO:: Processing Video "{}"'.format(song))
                 if self.getvideo:
                     videotmpfpath = video_tmp_fpath + '.mkv' # output of YoutubeDL, as input for FFmpegNormalize
-                    videofpath    = song_fpath + '.mkv'     # output of FFmpegNormalize
-                    # 1. Download video
+                    videofpath    = song_fpath + '.mkv'      # output of FFmpegNormalize
+                    # 1. Download video. Input: youtube link, output: file in videotmpfpath folder
                     if os.path.isfile(videotmpfpath):
                         self.logger.debug('DEBUG:: Skip downloading: File "{}" already exist!'.format(videotmpfpath))
                     else:
                         self.logger.info('INFO:: Downloading video: {} ...'.format(song))
                         ydl_video_opts = {
-                            'format'         : 'bestvideo+bestaudio',
                             'postprocessors' : [{
                                 'key'           : 'FFmpegVideoConvertor',
                                 'preferedformat': 'mkv'
                             }],
                             'outtmpl'        : video_tmp_fpath + '.%(ext)s'
                         }
+                        #
+                        if isyoutube:
+                            ydl_video_opts.update({'format'         : 'bestvideo+bestaudio'})
+                        #
                         self.logger.debug('DEBUG:: Downlink: {}'.format(dlink))
                         self.logger.debug('DEBUG:: Options: {}'.format({**ydl_opts, **ydl_video_opts}))
                         try:
@@ -290,7 +309,7 @@ class DLYoutube(object):
                             os.remove(videofpath)
                         except OSError:
                             pass
-                    # 2. Normalize video
+                    # 2. Normalize video. Input video from videotmpfpath, output video to videofpath
                     if os.path.isfile(videofpath):
                         self.logger.debug('DEBUG:: Skip normalizing: Video file "{}" already exist!'.format(videofpath))
                     else:
@@ -308,7 +327,7 @@ class DLYoutube(object):
                 # AUDIO (MP3)
                 self.logger.info('')
                 self.logger.info('INFO:: Processing Audio "{}"'.format(song))
-                if self.getaudio:
+                if self.getaudio and isyoutube:
                     # 3. Download Audio
                     audiotmpfpath = audio_tmp_fpath + '.mp3'
                     audiofpath    = song_fpath + '.mp3'
@@ -432,9 +451,9 @@ if __name__ == "__main__":
             traceback.print_exc()
             parser.print_help()
             sys.exit(1)
-    except DLException as e:
+    except DLException:
         try:
-            raise DLReqError(e)
+            raise
         except:
             traceback.print_exc()
             parser.print_help()
