@@ -103,19 +103,23 @@ class DLYoutube(object):
     DATE         = 'TDAT'  # 'date'
     YEAR         = 'TYER'  # year of recording
     PICTURE      = 'picture'
+    #
+    VIDEO_FILE_EXT = ('mp4', 'mkv', 'webm', 'mpg', 'mpeg', 'mpe', 'mpv', 'mp4', 'm4v', 'avi', 'wmv', 'mov')
     # this is input csv format sequence
     INPUT_CSV_HEADER = (DLINK, ALBUMARTIST, ALBUM, TITLE, ARTIST, GENRE, YEAR, PICTURE)
     #
     def __init__(self, **kwargs):
-        self.inputList    = None
-        self.outputFolder = None
-        self.logger       = None
-        self.verbose      = None
+        self.inputList        = None
+        self.outputFolder     = None
+        self.downloaded_fname = None
+        self.logger           = None
+        self.verbose          = None
         #
-        self.getaudio     = not kwargs.get('videoonly', True)
-        self.getvideo     = not kwargs.get('audioonly', True)
+        self.getaudio         = not kwargs.get('videoonly', True)
+        self.getvideo         = not kwargs.get('audioonly', True)
+        self.convert_to_mkv   = False if not kwargs.get('converttomkv', False) else True
         #
-        self.verbose      = self.set_verbosity(kwargs.get('verbose', logging.NOTSET))  # integer
+        self.verbose          = self.set_verbosity(kwargs.get('verbose', logging.NOTSET))  # integer
         #
         folderoutput = kwargs.get('folderoutput', self.OUTPUT_FOLDER)
         if folderoutput is not None:
@@ -217,9 +221,18 @@ class DLYoutube(object):
         return True if 'youtube' in link else False
 
     #
+    def downloaded_video_file_exist(self, fnamenoext):
+        for fname in [fnamenoext + '.' + fext for fext in self.VIDEO_FILE_EXT]:
+            if os.path.isfile(fname):
+                return fname
+        else:
+            return None
+
+    #
     def ydl_hook(self, d):
         if d['status'] == 'finished':
-            msg = 'Downloaded {}'.format(d['filename'])
+            self.downloaded_fname = '{}'.format(d['filename'])
+            msg = 'Downloaded {}'.format(self.downloaded_fname)
             if 'downloaded_bytes' in d:
                 msg += ' size: {} bytes'.format(d['downloaded_bytes'])
             #
@@ -270,145 +283,177 @@ class DLYoutube(object):
                 if not os.path.isdir(album_fpath):
                     continue
             #
-            isyoutube = self.isYoutubeLink(dlink)
+            isyoutube    = self.isYoutubeLink(dlink)
+            if self.convert_to_mkv is True or isyoutube is True:
+                converttomkv = True
+            else:
+                converttomkv = False
             #
             try:
-                # VIDEO (MKV)
-                self.logger.info('')
-                self.logger.info('INFO:: Processing Video "{}"'.format(song))
+                # VIDEO
+                self.downloaded_fname = None
                 if self.getvideo:
-                    videotmpfpath = video_tmp_fpath + '.mkv' # output of YoutubeDL, as input for FFmpegNormalize
-                    videofpath    = song_fpath + '.mkv'      # output of FFmpegNormalize
+                    self.logger.info('')
+                    self.logger.info('INFO:: Processing Video "{}"'.format(song))
+                    # best guest if we already downloaded video file from previous runs
+                    videotmpfpath = self.downloaded_video_file_exist(video_tmp_fpath)
+                    # best guest if we already have target normalized video file
+                    videofpath    = self.downloaded_video_file_exist(song_fpath)
+                    #
                     # 1. Download video. Input: youtube link, output: file in videotmpfpath folder
-                    if os.path.isfile(videotmpfpath):
-                        self.logger.debug('DEBUG:: Skip downloading: File "{}" already exist!'.format(videotmpfpath))
+                    #
+                    if videofpath is not None:
+                        self.logger.debug('DEBUG:: Skip: Target video file "{}" already exist!'.format(videofpath))
                     else:
-                        self.logger.info('INFO:: Downloading video: {} ...'.format(song))
-                        ydl_video_opts = {
-                            'postprocessors' : [{
-                                'key'           : 'FFmpegVideoConvertor',
-                                'preferedformat': 'mkv'
-                            }],
-                            'outtmpl'        : video_tmp_fpath + '.%(ext)s'
-                        }
+                        if videotmpfpath is not None:
+                            self.logger.debug('DEBUG:: Skip downloading: Video file "{}" already exist!'.format(videotmpfpath))
+                        else:
+                            self.logger.info('INFO:: Downloading video: {} ...'.format(song))
+                            ydl_video_opts = {
+                                'outtmpl'        : video_tmp_fpath + '.%(ext)s'
+                            }
+                            #
+                            if converttomkv:
+                                ydl_video_opts.update({
+                                    'postprocessors' : [{
+                                        'key'           : 'FFmpegVideoConvertor',
+                                        'preferedformat': 'mkv'
+                                    }]
+                                })
+                            #
+                            if isyoutube:
+                                ydl_video_opts.update({'format'         : 'bestvideo+bestaudio'})
+                            #
+                            self.logger.debug('DEBUG:: Downlink: {}'.format(dlink))
+                            self.logger.debug('DEBUG:: Options: {}'.format({**ydl_opts, **ydl_video_opts}))
+                            try:
+                                with youtube_dl.YoutubeDL({**ydl_opts, **ydl_video_opts}) as ydl:
+                                    ydl.download([dlink])
+                            except youtube_dl.utils.YoutubeDLError:
+                                raise DLYoutubeDLError('Abort downloading Video "{}"'.format(song))
+                            except Exception:
+                                raise
+                            # we now know the actual downloaded filename including the extension
+                            videotmpfpath = self.downloaded_fname  # output of YoutubeDL, as input for FFmpegNormalize
                         #
-                        if isyoutube:
-                            ydl_video_opts.update({'format'         : 'bestvideo+bestaudio'})
+                        # _ , ext    = os.path.splitext(videotmpfpath)
+                        ext = '.mkv' if converttomkv else os.path.splitext(videotmpfpath)[1]
+                        videofpath = song_fpath + ext  # target output of FFmpegNormalize
+                        # Delete existing target normalized video, if any
+                        # try:
+                        #     os.remove(videofpath)
+                        # except OSError:
+                        #     pass
                         #
-                        self.logger.debug('DEBUG:: Downlink: {}'.format(dlink))
-                        self.logger.debug('DEBUG:: Options: {}'.format({**ydl_opts, **ydl_video_opts}))
-                        try:
-                            with youtube_dl.YoutubeDL({**ydl_opts, **ydl_video_opts}) as ydl:
-                                ydl.download([dlink])
-                        except youtube_dl.utils.YoutubeDLError:
-                            raise DLYoutubeDLError('Abort downloading Video "{}"'.format(song))
-                        except Exception:
-                            raise
-                        # Delete existing normalized video
-                        try:
-                            os.remove(videofpath)
-                        except OSError:
-                            pass
-                    # 2. Normalize video. Input video from videotmpfpath, output video to videofpath
-                    if os.path.isfile(videofpath):
-                        self.logger.debug('DEBUG:: Skip normalizing: Video file "{}" already exist!'.format(videofpath))
-                    else:
-                        self.logger.info('INFO:: Normalizing file {} ...'.format(videotmpfpath))
-                        ffmpeg_normalize = FFmpegNormalize(
-                            dual_mono        = True,
-                            progress         = True,
-                            audio_codec      = 'libmp3lame',   # -c:a libmp3lame
-                            audio_bitrate    = '320k',         # -b:a 320k
-                            target_level     = -14.0           # -t -14
-                        )
-                        ffmpeg_normalize.add_media_file(videotmpfpath, videofpath)
-                        ffmpeg_normalize.run_normalization()
-                        self.logger.info('INFO:: Normalizing done. Output file: {}'.format(videofpath))
+                        # 2. Normalize video. Input video from videotmpfpath, output video to videofpath
+                        #
+                        if os.path.isfile(videofpath):
+                            self.logger.debug('DEBUG:: Skip normalizing: Target video file "{}" already exist!'.format(videofpath))
+                        else:
+                            if not isyoutube: # no need normalize if it's not youtube
+                                shutil.copyfile(videotmpfpath, videofpath)
+                                self.logger.info('INFO:: Copying done. Output file: {}'.format(videofpath))
+                            else:
+                                self.logger.info('INFO:: Normalizing file {} ...'.format(videotmpfpath))
+                                ffmpeg_normalize = FFmpegNormalize(
+                                    dual_mono        = True,
+                                    progress         = True,
+                                    audio_codec      = 'libmp3lame',   # -c:a libmp3lame
+                                    audio_bitrate    = '320k',         # -b:a 320k
+                                    target_level     = -14.0           # -t -14
+                                )
+                                ffmpeg_normalize.add_media_file(videotmpfpath, videofpath)
+                                ffmpeg_normalize.run_normalization()
+                                self.logger.info('INFO:: Normalizing done. Output file: {}'.format(videofpath))
                 # AUDIO (MP3)
-                self.logger.info('')
-                self.logger.info('INFO:: Processing Audio "{}"'.format(song))
+                self.downloaded_fname = None
                 if self.getaudio and isyoutube:
+                    self.logger.info('')
+                    self.logger.info('INFO:: Processing Audio "{}"'.format(song))
                     # 3. Download Audio
                     audiotmpfpath = audio_tmp_fpath + '.mp3'
                     audiofpath    = song_fpath + '.mp3'
-                    if os.path.isfile(audiotmpfpath):
-                        self.logger.debug('DEBUG:: Skip downloading: File "{}" already exist!'.format(audiotmpfpath))
-                    else:
-                        self.logger.info('INFO:: Downloading audio "{}" ...'.format(song))
-                        ydl_audio_opts = {
-                            'format'         : 'bestaudio',
-                            'verbose'        : True,
-                            'postprocessors' : [{
-                                'key'             : 'FFmpegExtractAudio',
-                                'preferredcodec'  : 'mp3',
-                                'preferredquality': '320',
-                                'nopostoverwrites': False
-                            }],
-                            'outtmpl'        : audio_tmp_fpath + '.%(ext)s'
-                        }
-                        pp = pprint.PrettyPrinter(indent=2)
-                        self.logger.debug('DEBUG:: YoutubeDL Options: ' + pp.pformat({**ydl_opts, **ydl_audio_opts}))
-                        try:
-                            with youtube_dl.YoutubeDL({**ydl_opts, **ydl_audio_opts}) as ydl:
-                                ydl.download([dlink])
-                        except youtube_dl.utils.YoutubeDLError:
-                            raise DLYoutubeDLError('Abort downloading Audio "{}"'.format(song))
-                        except Exception:
-                            raise
-                        # 4. Update ID3 tag
-                        self.logger.info('INFO:: Updating MP3 ID3 tag ...')
-                        audio = ID3(audiotmpfpath)
-                        audio[self.ALBUMARTIST] = TPE2(encoding=3, text=albumartist)
-                        audio[self.ALBUM]       = TALB(encoding=3, text=album)
-                        audio[self.TITLE]       = TIT2(encoding=3, text=song)
-                        audio[self.ARTIST]      = TPE1(encoding=3, text=artist)
-                        audio[self.GENRE]       = TCON(encoding=3, text=genre)
-                        audio[self.YEAR]        = TYER(encoding=3, text=year)
-                        audio[self.DATE]        = TDAT(encoding=3, text=year)
-                        audio[self.DLINK]       = LINK(encoding=3, url=dlink)
-
-                        try:
-                            with open(os.path.join(self.coverFolder, cover), 'rb') as albumart:
-                                audio['APIC'] = APIC(encoding=3, mime='image/jpg', type=3,
-                                                    desc=u'Cover', data=albumart.read())
-                        except Exception as e:
-                            self.logger.debug('DEBUG:: Skipped album art file error: {}'.format(e))
-                        #
-                        try:
-                            audio.save()
-                            self.logger.info('INFO:: Audio ID3 Tag completed on file: {}'.format(audiotmpfpath))
-                            self.logger.info('INFO::   Title        : ' + audio[self.TITLE].text[0])
-                            self.logger.info('INFO::   Album        : ' + audio[self.ALBUM].text[0])
-                            self.logger.info('INFO::   Album Artist : ' + audio[self.ALBUMARTIST].text[0])
-                            self.logger.info('INFO::   Artist       : ' + audio[self.ARTIST].text[0])
-                            self.logger.info('INFO::   Genre        : ' + audio[self.GENRE].text[0])
-                            self.logger.info('INFO::   Year         : ' + audio[self.YEAR].text[0])
-                            self.logger.info('INFO::   Date         : ' + audio[self.DATE].text[0])
-                            self.logger.info('INFO::   Link         : ' + audio[self.DLINK].url)
-                        except Exception:
-                            self.logger.error('ERROR:: Error on saving ID3 tag!')
-                        #
-                        # Since we've updated the metadata, we need to normalize again.
-                        # Hence, delete target
-                        try:
-                            os.remove(audiofpath)
-                        except OSError:
-                            pass
-                    # 5. Normalize audio
                     if os.path.isfile(audiofpath):
-                        self.logger.debug('DEBUG:: Skip normalizing: Audio file "{}" already exist!'.format(audiofpath))
+                        self.logger.debug('DEBUG:: Skip: Target audio file "{}" already exist!'.format(audiofpath))
                     else:
-                        self.logger.info('INFO:: Normalizing file: {}'.format(audiotmpfpath))
-                        ffmpeg_normalize = FFmpegNormalize(
-                            dual_mono        = True,
-                            progress         = True,
-                            audio_codec      = 'libmp3lame',   # -c:a libmp3lame
-                            audio_bitrate    = '320k',         # -b:a 320k
-                            target_level     = -14.0           # -t -14
-                        )
-                        ffmpeg_normalize.add_media_file(audiotmpfpath, audiofpath)
-                        ffmpeg_normalize.run_normalization()
-                        self.logger.info('INFO:: Normalizing done. Output file: {}'.format(audiofpath))
+                        if os.path.isfile(audiotmpfpath):
+                            self.logger.debug('DEBUG:: Skip downloading: Audio file "{}" already exist!'.format(audiotmpfpath))
+                        else:
+                            self.logger.info('INFO:: Downloading audio "{}" ...'.format(song))
+                            ydl_audio_opts = {
+                                'format'         : 'bestaudio',
+                                'verbose'        : True,
+                                'postprocessors' : [{
+                                    'key'             : 'FFmpegExtractAudio',
+                                    'preferredcodec'  : 'mp3',
+                                    'preferredquality': '320',
+                                    'nopostoverwrites': False
+                                }],
+                                'outtmpl'        : audio_tmp_fpath + '.%(ext)s'
+                            }
+                            pp = pprint.PrettyPrinter(indent=2)
+                            self.logger.debug('DEBUG:: YoutubeDL Options: ' + pp.pformat({**ydl_opts, **ydl_audio_opts}))
+                            try:
+                                with youtube_dl.YoutubeDL({**ydl_opts, **ydl_audio_opts}) as ydl:
+                                    ydl.download([dlink])
+                            except youtube_dl.utils.YoutubeDLError:
+                                raise DLYoutubeDLError('Abort downloading Audio "{}"'.format(song))
+                            except Exception:
+                                raise
+                            # 4. Update ID3 tag
+                            self.logger.info('INFO:: Updating MP3 ID3 tag ...')
+                            audio = ID3(audiotmpfpath)
+                            audio[self.ALBUMARTIST] = TPE2(encoding=3, text=albumartist)
+                            audio[self.ALBUM]       = TALB(encoding=3, text=album)
+                            audio[self.TITLE]       = TIT2(encoding=3, text=song)
+                            audio[self.ARTIST]      = TPE1(encoding=3, text=artist)
+                            audio[self.GENRE]       = TCON(encoding=3, text=genre)
+                            audio[self.YEAR]        = TYER(encoding=3, text=year)
+                            audio[self.DATE]        = TDAT(encoding=3, text=year)
+                            audio[self.DLINK]       = LINK(encoding=3, url=dlink)
+
+                            try:
+                                with open(os.path.join(self.coverFolder, cover), 'rb') as albumart:
+                                    audio['APIC'] = APIC(encoding=3, mime='image/jpg', type=3,
+                                                        desc=u'Cover', data=albumart.read())
+                            except Exception as e:
+                                self.logger.debug('DEBUG:: Skipped album art file error: {}'.format(e))
+                            #
+                            try:
+                                audio.save()
+                                self.logger.info('INFO:: Audio ID3 Tag completed on file: {}'.format(audiotmpfpath))
+                                self.logger.info('INFO::   Title        : ' + audio[self.TITLE].text[0])
+                                self.logger.info('INFO::   Album        : ' + audio[self.ALBUM].text[0])
+                                self.logger.info('INFO::   Album Artist : ' + audio[self.ALBUMARTIST].text[0])
+                                self.logger.info('INFO::   Artist       : ' + audio[self.ARTIST].text[0])
+                                self.logger.info('INFO::   Genre        : ' + audio[self.GENRE].text[0])
+                                self.logger.info('INFO::   Year         : ' + audio[self.YEAR].text[0])
+                                self.logger.info('INFO::   Date         : ' + audio[self.DATE].text[0])
+                                self.logger.info('INFO::   Link         : ' + audio[self.DLINK].url)
+                            except Exception:
+                                self.logger.error('ERROR:: Error on saving ID3 tag!')
+                            #
+                            # Since we've updated the metadata, we need to normalize again.
+                            # Hence, delete target
+                            try:
+                                os.remove(audiofpath)
+                            except OSError:
+                                pass
+                        # 5. Normalize audio
+                        if os.path.isfile(audiofpath):
+                            self.logger.debug('DEBUG:: Skip normalizing: Audio file "{}" already exist!'.format(audiofpath))
+                        else:
+                            self.logger.info('INFO:: Normalizing file: {}'.format(audiotmpfpath))
+                            ffmpeg_normalize = FFmpegNormalize(
+                                dual_mono        = True,
+                                progress         = True,
+                                audio_codec      = 'libmp3lame',   # -c:a libmp3lame
+                                audio_bitrate    = '320k',         # -b:a 320k
+                                target_level     = -14.0           # -t -14
+                            )
+                            ffmpeg_normalize.add_media_file(audiotmpfpath, audiofpath)
+                            ffmpeg_normalize.run_normalization()
+                            self.logger.info('INFO:: Normalizing done. Output file: {}'.format(audiofpath))
                 #
             except DLYoutubeDLError as e:
                 self.logger.error('ERROR:: DLYoutubeDLError {}'.format(e))
@@ -417,13 +462,15 @@ class DLYoutube(object):
 
 if __name__ == "__main__":
     import argparse
-
+    # Note: The store_true option automatically creates a default value of False.
+    #       Likewise, store_false will default to True when the command-line argument is not present.
     #
     def main(args):
         opts = { 'verbose'         : args.verbose,
                  'inputlist'       : args.inputlist,
                  'audioonly'       : args.audioonly,
                  'videoonly'       : args.videoonly,
+                 'converttomkv'    : args.converttomkv,
                  'coverfolder'     : args.coverfolder,
                  'folderoutput'    : args.outputfolder}
         DLYoutube(**opts).main()
@@ -434,6 +481,7 @@ if __name__ == "__main__":
     parser.add_argument('--version', action='version', version=__progname_version__)
     group01.add_argument('--audio-only', dest='audioonly', action='store_true', help='Download audio')
     group01.add_argument('--video-only', dest='videoonly', action='store_true', help='Download video')
+    parser.add_argument('-m', '--convert-to-mkv', dest='converttomkv', action='store_true', help='Video convert to mkv')
     parser.add_argument('-v', '--verbose', action='count', default=0,
                         help='increase verbosity. Specify multiple times for increased diagnostic output.')
     parser.add_argument('-c', '--coverfolder', dest='coverfolder', default=None, help='Cover art folder')
