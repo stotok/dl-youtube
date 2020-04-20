@@ -35,13 +35,17 @@
 
    Example =download_list.csv=:
 #+BEGIN_EXAMPLE
-  #     <youtube link>                  <album artist>    <album name>     <song>       <artist>   <genre> <year> <picture file>
+  # <dl type>  <youtube link>               <album artist>    <album name>     <song>       <artist>   <genre> <year> <picture file>
 #
-https://www.youtube.com/watch?v=3qe2l2-c6-4, Queen Singer, Immortal Songs, Every Night, Queen Singer,  Pop, 2019, queen_09.jpg  # 20191026
-https://www.youtube.com/watch?v=EF129mg1r_c, Queen Singer, Immortal Songs, Nocturne,    Queen Singer,  Pop, 2019, queen_05.jpg
+av, https://www.youtube.com/watch?v=3qe2l2-c6-4, Queen Singer, Immortal Songs, Every Night, Queen Singer,  Pop, 2019, queen_09.jpg  # 20191026
+av, https://www.youtube.com/watch?v=EF129mg1r_c, Queen Singer, Immortal Songs, Nocturne,    Queen Singer,  Pop, 2019, queen_05.jpg
 #+END_EXAMPLE
 
    CSV column explanation:
+   - download type :: type of download, whether MP3, MKV or both.
+     - 'a': audio only (MP3)
+     - 'v': video only (MKV with it's audio, of course)
+     - 'av': audio (MP3) and video (MKV)
    - youtube link :: it must be direct link (not playlist, etc)
    - album artist :: /self explanatory/
    - album name :: /self explanatory/

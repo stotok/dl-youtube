@@ -11,13 +11,6 @@ import shutil
 import sys
 import traceback
 
-# TODO
-# - Support download not from youtube (done)
-# - Readme for 'user' and 'developer' (done)
-# - input csv with 'av', 'v', 'a'
-# - generate standalone executable with nuitka
-#   $ python -m nuitka --standalone --show-progress --show-scons dl-youtube.py
-
 
 class DLException(Exception): pass
 class DLReqError(DLException): pass
@@ -71,17 +64,21 @@ if shutil.which('ffmpeg') is None and shutil.which('avconv') is None:
     msg += '\n    avconv:   $ sudo apt install avconv'
     raise DLReqError(msg)
 
-DEBUG = False
-
-__version_info__ = (0, 8, 1)
+__version_info__ = (0, 8, 2)
 __version__ = '.'.join(str(c) for c in __version_info__)
 __progname_version__ = __file__ + ' ' + __version__
 
 # version history
+# v0.8.2
+# - Add first column on csv input as download type
 # v0.8.1
 # - support download other than youtube (video only)
 # v0.8.0
 # - initial release
+#
+# TODO
+# - generate standalone executable with nuitka
+#   $ python -m nuitka --standalone --show-progress --show-scons dl-youtube.py
 
 class DLYoutube(object):
     '''
@@ -94,19 +91,23 @@ class DLYoutube(object):
     OUTPUT_FOLDER     = os.path.join(PRJ_ROOT, 'output')
     COVER_FOLDER      = os.path.join(PRJ_ROOT, 'cover')
     # same as frame name in ID3
-    DLINK        = 'LINK'  # link information
-    ALBUMARTIST  = 'TPE2'  # 'albumartist'
-    ALBUM        = 'TALB'  # 'album'
-    TITLE        = 'TIT2'  # 'title'
-    ARTIST       = 'TPE1'  # 'artist'
-    GENRE        = 'TCON'  # 'genre'
-    DATE         = 'TDAT'  # 'date'
-    YEAR         = 'TYER'  # year of recording
+    # 'a': audio only [MP3]
+    # 'v': video only [MKV: with it's audio, no separate mp3]
+    # 'av': both audio [MP3] and video [MKV]
+    DLTYPE       = 'DLTYPE'  # Download type
+    DLINK        = 'LINK'    # link information
+    ALBUMARTIST  = 'TPE2'    # 'albumartist'
+    ALBUM        = 'TALB'    # 'album'
+    TITLE        = 'TIT2'    # 'title'
+    ARTIST       = 'TPE1'    # 'artist'
+    GENRE        = 'TCON'    # 'genre'
+    DATE         = 'TDAT'    # 'date'
+    YEAR         = 'TYER'    # year of recording
     PICTURE      = 'picture'
     #
     VIDEO_FILE_EXT = ('mp4', 'mkv', 'webm', 'mpg', 'mpeg', 'mpe', 'mpv', 'mp4', 'm4v', 'avi', 'wmv', 'mov')
     # this is input csv format sequence
-    INPUT_CSV_HEADER = (DLINK, ALBUMARTIST, ALBUM, TITLE, ARTIST, GENRE, YEAR, PICTURE)
+    INPUT_CSV_HEADER = (DLTYPE, DLINK, ALBUMARTIST, ALBUM, TITLE, ARTIST, GENRE, YEAR, PICTURE)
     #
     def __init__(self, **kwargs):
         self.inputList        = None
@@ -115,8 +116,6 @@ class DLYoutube(object):
         self.logger           = None
         self.verbose          = None
         #
-        self.getaudio         = not kwargs.get('videoonly', True)
-        self.getvideo         = not kwargs.get('audioonly', True)
         self.convert_to_mkv   = False if not kwargs.get('converttomkv', False) else True
         #
         self.verbose          = self.set_verbosity(kwargs.get('verbose', logging.NOTSET))  # integer
@@ -227,6 +226,20 @@ class DLYoutube(object):
                 return fname
         else:
             return None
+    #
+    def get_dl_type(self, opt):
+        getaudio = False
+        getvideo = False
+        if opt.lower() == 'a':
+            getaudio = True
+        elif opt.lower() == 'v':
+            getvideo = True
+        elif opt.lower() == 'av':
+            getaudio = True
+            getvideo = True
+        else:
+            pass
+        return (getaudio, getvideo)
 
     #
     def ydl_hook(self, d):
@@ -261,6 +274,8 @@ class DLYoutube(object):
             year          = od[self.YEAR].strip().strip('"')        # year
             cover         = od[self.PICTURE].strip().strip('"')     # cover picture
 
+            # get download type
+            getaudio, getvideo = self.get_dl_type(od[self.DLTYPE].strip().strip('"'))
             # non-alphanumeric change to underscore
             albumartist_fname = re.sub('[^0-9a-zA-Z]+', '_', albumartist)
             albumartist_fpath = os.path.join(self.outputFolder, albumartist_fname)
@@ -290,9 +305,9 @@ class DLYoutube(object):
                 converttomkv = False
             #
             try:
-                # VIDEO
+                # VIDEO (including it's audio, of course)
                 self.downloaded_fname = None
-                if self.getvideo:
+                if getvideo:
                     self.logger.info('')
                     self.logger.info('INFO:: Processing Video "{}"'.format(song))
                     # best guest if we already downloaded video file from previous runs
@@ -367,7 +382,7 @@ class DLYoutube(object):
                                 self.logger.info('INFO:: Normalizing done. Output file: {}'.format(videofpath))
                 # AUDIO (MP3)
                 self.downloaded_fname = None
-                if self.getaudio and isyoutube:
+                if getaudio and isyoutube:
                     self.logger.info('')
                     self.logger.info('INFO:: Processing Audio "{}"'.format(song))
                     # 3. Download Audio
@@ -468,8 +483,6 @@ if __name__ == "__main__":
     def main(args):
         opts = { 'verbose'         : args.verbose,
                  'inputlist'       : args.inputlist,
-                 'audioonly'       : args.audioonly,
-                 'videoonly'       : args.videoonly,
                  'converttomkv'    : args.converttomkv,
                  'coverfolder'     : args.coverfolder,
                  'folderoutput'    : args.outputfolder}
@@ -477,10 +490,7 @@ if __name__ == "__main__":
 
     # setup parser
     parser = argparse.ArgumentParser(description='Youtube Downloader and Stuffs')
-    group01 = parser.add_mutually_exclusive_group()
     parser.add_argument('--version', action='version', version=__progname_version__)
-    group01.add_argument('--audio-only', dest='audioonly', action='store_true', help='Download audio')
-    group01.add_argument('--video-only', dest='videoonly', action='store_true', help='Download video')
     parser.add_argument('-m', '--convert-to-mkv', dest='converttomkv', action='store_true', help='Video convert to mkv')
     parser.add_argument('-v', '--verbose', action='count', default=0,
                         help='increase verbosity. Specify multiple times for increased diagnostic output.')
