@@ -8,3 +8,4 @@ tmp/
 .gitignore.swp
 .spacemacs.swp
 README.html
+Pipfile.lock
